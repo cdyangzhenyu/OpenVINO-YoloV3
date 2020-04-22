@@ -1,5 +1,6 @@
 import sys, os, cv2, time, heapq, argparse
 from PIL import Image, ImageFont, ImageDraw
+from vidgear.gears import NetGear
 import numpy as np, math
 try:
     from armv7l.openvino.inference_engine import IENetwork, IEPlugin
@@ -8,6 +9,12 @@ except:
 import multiprocessing as mp
 from time import sleep
 import threading
+
+#activate multiserver_mode
+options = {'multiserver_mode': False}
+
+#change following IP address '192.168.1.xxx' with Client's IP address and assign unique port address(for e.g 5566).
+server = NetGear(address = "127.0.0.1", port = '5566', protocol = 'tcp',  pattern = 1, receive_mode = False, logging=True, **options) # and keep rest of settings similar to Client
 
 yolo_scale_13 = 13
 yolo_scale_26 = 26
@@ -26,7 +33,7 @@ LABELS = ("apple_black_rot", "apple_cedar_rust", "apple_healthy", "apple_scab", 
 label_text_color = (255, 255, 0)
 label_background_color = (125, 175, 75)
 box_color = (255, 128, 0)
-box_thickness = 2
+box_thickness = 1
 
 processes = []
 
@@ -37,6 +44,10 @@ detectframecount = 0
 time1 = 0
 time2 = 0
 lastresults = None
+
+cur_path = sys.path[0]
+model_xml = cur_path + "/../lrmodels/YoloV3_plant/FP16/yolov3_plant_model.xml"
+model_bin = cur_path + "/../lrmodels/YoloV3_plant/FP16/yolov3_plant_model.bin"
 
 DESCRIPTION = {"strawberry_healthy": "这株草莓很健康。", 
                "strawberry_Leaf_scorch": "这株草莓得了叶焦病，草莓叶焦（Leaf Scorch）是由真菌感染\n"
@@ -184,7 +195,7 @@ def camThread(LABELS, results, frameBuffer, camera_width, camera_height, vidfps)
     #window_name = "Movie File"
     #wait_key_time = int(1000 / vidfps)
 
-    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+    #cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
     while True:
         t1 = time.perf_counter()
@@ -231,11 +242,16 @@ def camThread(LABELS, results, frameBuffer, camera_width, camera_height, vidfps)
                             color_image = paint_chinese_opencv(color_image, DESCRIPTION[LABELS[label]], (obj.xmin, obj.ymin + 50), 16, (255,255,0))
         cv2.putText(color_image, fps,       (width-170,15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (38,0,255), 1, cv2.LINE_AA)
         cv2.putText(color_image, detectfps, (width-170,30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (38,0,255), 1, cv2.LINE_AA)
-        cv2.imshow(window_name, cv2.resize(color_image, (width, height)))
+        #cv2.imshow(window_name, cv2.resize(color_image, (width, height)))
 
-        if cv2.waitKey(wait_key_time)&0xFF == ord('q'):
-            sys.exit(0)
-
+        #if cv2.waitKey(wait_key_time)&0xFF == ord('q'):
+        #    sys.exit(0)
+       
+        try:
+            server.send(color_image)
+        except:
+            print("server send error!")
+            pass
         ## Print FPS
         framecount += 1
         if framecount >= 15:
@@ -273,8 +289,8 @@ class NcsWorker(object):
     def __init__(self, devid, frameBuffer, results, camera_width, camera_height, number_of_ncs, vidfps):
         self.devid = devid
         self.frameBuffer = frameBuffer
-        self.model_xml = "./lrmodels/YoloV3_plant/FP16/yolov3_plant_model.xml"
-        self.model_bin = "./lrmodels/YoloV3_plant/FP16/yolov3_plant_model.bin"
+        self.model_xml = model_xml
+        self.model_bin = model_bin
         self.camera_width = camera_width
         self.camera_height = camera_height
         self.m_input_size = 416
