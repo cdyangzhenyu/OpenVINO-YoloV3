@@ -157,32 +157,35 @@ def main_IE_infer():
     new_h = int(camera_height * m_input_size/camera_height)
 
     args = build_argparser().parse_args()
-    model_xml = "lrmodels/YoloV3/FP32/frozen_yolo_v3.xml" #<--- CPU
-    #model_xml = "lrmodels/YoloV3/FP16/frozen_yolo_v3.xml" #<--- MYRIAD
+    #model_xml = "lrmodels/YoloV3/FP32/frozen_yolo_v3.xml" #<--- CPU
+    model_xml = "lrmodels/YoloV3/FP16/frozen_yolo_v3.xml" #<--- MYRIAD
     model_bin = os.path.splitext(model_xml)[0] + ".bin"
 
-    cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FPS, 30)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, camera_width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_height)
+    #cap = cv2.VideoCapture(0)
+    #cap.set(cv2.CAP_PROP_FPS, 30)
+    #cap.set(cv2.CAP_PROP_FRAME_WIDTH, camera_width)
+    #cap.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_height)
 
-    #cap = cv2.VideoCapture("data/input/testvideo.mp4")
-    #camera_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    #camera_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    #frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    #vidfps = int(cap.get(cv2.CAP_PROP_FPS))
-    #print("videosFrameCount =", str(frame_count))
-    #print("videosFPS =", str(vidfps))
+    #cap = cv2.VideoCapture("data/input/testvideo4.mp4")
+    cap = cv2.VideoCapture("data/input/plant_disease.mp4")
+    camera_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    camera_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    vidfps = int(cap.get(cv2.CAP_PROP_FPS))
+    print("videosFrameCount =", str(frame_count))
+    print("videosFPS =", str(vidfps))
 
     time.sleep(1)
 
     plugin = IEPlugin(device=args.device)
     if "CPU" in args.device:
         plugin.add_cpu_extension("lib/libcpu_extension.so")
+    print("===1===")
     net = IENetwork(model=model_xml, weights=model_bin)
     input_blob = next(iter(net.inputs))
+    print("===11===")
     exec_net = plugin.load(network=net)
-
+    print("===2===")
     while cap.isOpened():
         t1 = time.time()
 
@@ -205,7 +208,6 @@ def main_IE_infer():
 
         for output in outputs.values():
             objects = ParseYOLOV3Output(output, new_h, new_w, camera_height, camera_width, 0.7, objects)
-
         # Filtering overlapping boxes
         objlen = len(objects)
         for i in range(objlen):
@@ -233,10 +235,10 @@ def main_IE_infer():
             break
         elapsedTime = time.time() - t1
         fps = "(Playback) {:.1f} FPS".format(1/elapsedTime)
-
+        print(elapsedTime)
         ## frame skip, video file only
-        #skip_frame = int((vidfps - int(1/elapsedTime)) / int(1/elapsedTime))
-        #framepos += skip_frame
+        skip_frame = int((vidfps - int(1/elapsedTime)) / int(1/elapsedTime))
+        framepos += skip_frame
 
     cv2.destroyAllWindows()
     del net
