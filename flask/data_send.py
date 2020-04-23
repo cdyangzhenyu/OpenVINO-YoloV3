@@ -9,6 +9,14 @@ except:
 import multiprocessing as mp
 from time import sleep
 import threading
+import paho.mqtt.client as mqtt
+import json
+
+MQTT_HOST = "192.168.0.11"
+MQTT_PORT = 1883
+
+detect_data = {'serialNumber': "SN-0002"}
+send_time = 0
 
 #activate multiserver_mode
 options = {'multiserver_mode': False}
@@ -33,7 +41,7 @@ LABELS = ("apple_black_rot", "apple_cedar_rust", "apple_healthy", "apple_scab", 
 label_text_color = (255, 255, 0)
 label_background_color = (125, 175, 75)
 box_color = (255, 128, 0)
-box_thickness = 1
+box_thickness = 2
 
 processes = []
 
@@ -50,29 +58,28 @@ model_xml = cur_path + "/../lrmodels/YoloV3_plant/FP16/yolov3_plant_model.xml"
 model_bin = cur_path + "/../lrmodels/YoloV3_plant/FP16/yolov3_plant_model.bin"
 
 DESCRIPTION = {"strawberry_healthy": "这株草莓很健康。", 
-               "strawberry_Leaf_scorch": "这株草莓得了叶焦病，草莓叶焦（Leaf Scorch）是由真菌感染\n"
-                                         "引起的，真菌感染会影响草莓种植的叶子。这种真菌称为双翅龙，\n"
-                                         "感染这种真菌的草莓叶子最初会在叶片顶部出现紫色小斑点，随\n"
-                                         "着时间的流逝，斑点将继续变大、变暗。严重的情况下，黑点甚至\n"
-                                         "可能覆盖草莓植物叶片的整个部分，这可能导致整个叶片完全干燥\n"
-                                         "并从植物上掉下来。这种由真菌引起的草莓病害对草莓作物本身的\n"
-                                         "质量影响不大。\n"
+               "strawberry_Leaf_scorch": "这株草莓得了叶焦病，草莓叶焦（Leaf Scorch）由双翘龙真菌感染\n"
+                                         "引起感染之初会在叶片顶部出现紫色小斑点，随着时间的流逝，斑\n"
+                                         "点将继续变大、变暗。严重的情况下，黑点甚至可能覆盖草莓植物\n"
+                                         "叶片的整个部分，这可能导致整个叶片完全干燥并从植物上掉下来。\n"
                                          "防治方法：保持通风、清洁卫生、避免土壤过涝",
                "cherry_healthy": "这株樱桃很健康。",
-               "cherry_sour_powdery_mildew": "樱桃白粉病（Powdery Mildew）是一种农作物常见的病害，\n"
-                                             "感染之后会在叶片出现一些白色状的粉状霉层，在一般的情\n"
-                                             "况下叶片背面的白色粉状霉层比正面的多，然后再慢慢蔓延\n"
-                                             "到果实，从而使果实的果面也出现白色粉状霉层，同时果实\n"
-                                             "会出现表皮枯死、硬化、龟裂等症状，从而使樱桃出生早衰\n"
-                                             "的现象，降低产量。\n"
+               "cherry_sour_powdery_mildew": "这株樱桃得了白粉病（Powdery Mildew），这是一种农作物常见\n"
+                                             "的病害，感染后会在叶片出现一些白色状的粉状霉层，之后会蔓延\n"
+                                             "到果实，果面会出现白色粉状霉层，同时果实会出现表皮枯死、硬化、\n"
+                                             "龟裂等症状，从而使樱桃出现早衰的现象，降低产量。\n"
                                              "防治方法：\n"
                                              "  1、发病期喷洒0.3°Be石硫合剂或25％粉锈宁3000倍液、\n"
                                              "70％甲基硫菌灵可湿性粉剂1500倍液1-2次。\n"
-                                             "  2、秋后清理果园，扫除落叶，集中烧毁。一般对于樱桃白\n"
-                                             "粉病的防治建议以预防为主，因为预防好了，能有效减少白\n"
-                                             "粉病的发生，这样可以尽量避免使用农药进行治疗，从而起\n"
-                                             "到减少樱桃果实中的农药残留量的作用，保证了樱桃果实的\n"
-                                             "品质，获得好效益。"}
+                                             "  2、秋后清理果园，扫除落叶，集中烧毁。\n"}
+
+client = mqtt.Client()
+client.connect(MQTT_HOST, MQTT_PORT, 60)
+
+def send_mqtt(data):
+    if not data:
+        return
+    res = client.publish("/sensor/data", json.dumps(data), 0)
 
 def paint_chinese_opencv(im,chinese,position,fontsize,color):#opencv输出中文
     img_PIL = Image.fromarray(cv2.cvtColor(im,cv2.COLOR_BGR2RGB))# 图像从OpenCV格式转换成PIL格式
@@ -175,6 +182,7 @@ def camThread(LABELS, results, frameBuffer, camera_width, camera_height, vidfps)
     global detectframecount
     global time1
     global time2
+    global send_time
     global cam
     global window_name
 
@@ -225,6 +233,11 @@ def camThread(LABELS, results, frameBuffer, camera_width, camera_height, vidfps)
                     cv2.rectangle(color_image, (obj.xmin, obj.ymin), (obj.xmax-10, obj.ymax-10), box_color, box_thickness)
                     cv2.putText(color_image, label_text, (obj.xmin, obj.ymin - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, label_text_color, 1)
                     if DESCRIPTION.get(LABELS[label], None):
+                        if "healthy" not in LABELS[label] and time.time() - send_time > 1:
+                            detect_data['plant_disease'] = 1
+                            send_mqtt(detect_data)
+                            send_time = time.time()
+                            print("send mqtt ===========")
                         color_image = paint_chinese_opencv(color_image, DESCRIPTION[LABELS[label]], (obj.xmin, obj.ymin + 50), 16, (255,255,0))
             lastresults = objects
         else:
@@ -239,6 +252,11 @@ def camThread(LABELS, results, frameBuffer, camera_width, camera_height, vidfps)
                         cv2.rectangle(color_image, (obj.xmin, obj.ymin), (obj.xmax-10, obj.ymax-10), box_color, box_thickness)
                         cv2.putText(color_image, label_text, (obj.xmin, obj.ymin - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, label_text_color, 1)
                         if DESCRIPTION.get(LABELS[label], None):
+                            if "healthy" not in LABELS[label] and time.time() - send_time > 1:
+                                detect_data['plant_disease'] = 1
+                                send_mqtt(detect_data)
+                                send_time = time.time()
+                                print("send mqtt ===========")
                             color_image = paint_chinese_opencv(color_image, DESCRIPTION[LABELS[label]], (obj.xmin, obj.ymin + 50), 16, (255,255,0))
         cv2.putText(color_image, fps,       (width-170,15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (38,0,255), 1, cv2.LINE_AA)
         cv2.putText(color_image, detectfps, (width-170,30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (38,0,255), 1, cv2.LINE_AA)
